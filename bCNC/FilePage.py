@@ -19,6 +19,14 @@ from tkinter import (
     Checkbutton,
     Label,
     Menu,
+    Toplevel,
+    Listbox,
+    Frame,
+    Scrollbar,
+    Button,
+    messagebox,
+    StringVar,
+    Entry,
 )
 import CNCRibbon
 import Ribbon
@@ -37,6 +45,7 @@ except Exception:
     from Utils import comports
 
 BAUDS = [2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400]
+
 
 # =============================================================================
 # Recent Menu button
@@ -116,6 +125,21 @@ class FileGroup(CNCRibbon.ButtonGroup):
         tkExtra.Balloon.set(b, _("Open recent file"))
         self.addWidget(b)
 
+        # --- Favorites Button ---
+        col, row = 4, 0
+        # Create FavoritesButton that directly calls openFavoriteMenu when clicked
+        b = Ribbon.LabelButton(
+            self.frame,
+            image=Utils.icons["open32"],
+            text=_("Favorites"),
+            compound=TOP,
+            command=self.openFavoriteMenu,
+            background=Ribbon._BACKGROUND,
+        )
+        b.grid(row=row, column=col, rowspan=3, padx=0, pady=0, sticky=NSEW)
+        tkExtra.Balloon.set(b, _("Access and manage favorite files"))
+        self.addWidget(b)
+
         # ---
         col, row = 2, 0
         b = Ribbon.LabelButton(
@@ -158,6 +182,312 @@ class FileGroup(CNCRibbon.ButtonGroup):
         b.grid(row=row, column=col, padx=0, pady=0, sticky=NSEW)
         tkExtra.Balloon.set(b, _("Save gcode/dxf AS"))
         self.addWidget(b)
+
+    # ----------------------------------------------------------------------
+    def openFavoriteMenu(self):
+        """Show a menu with favorites"""
+        # Load favorites
+        favorites = []
+        for i in range(20):  # Maximum of 20 favorites
+            favorite = Utils.getStr("Favorites", f"favorite.{i}", "")
+            if favorite:
+                favorites.append(favorite)
+            else:
+                break
+
+        # Create popup menu
+        menu = Menu(self.master, tearoff=0)
+
+        # Add management options
+        menu.add_command(
+            label=_("Add Current File to Favorites"),
+            command=self.addFavorite
+        )
+
+        menu.add_command(
+            label=_("Manage Favorites..."),
+            command=self.manageFavorites
+        )
+
+        if favorites:
+            menu.add_separator()
+
+            # Add favorites
+            for filename in favorites:
+                fn = os.path.basename(filename)
+                menu.add_command(
+                    label=fn,
+                    command=lambda f=filename: self.openFavorite(f)
+                )
+
+        # Display menu at mouse position
+        menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+
+    # ----------------------------------------------------------------------
+    def addFavorite(self):
+        """Add current file to favorites"""
+        filename = self.app.gcode.filename
+        if not filename:
+            messagebox.showinfo(
+                _("No File Open"),
+                _("Please open a file before adding it to favorites.")
+            )
+            return
+
+        # Load existing favorites
+        favorites = []
+        for i in range(20):  # Maximum of 20 favorites
+            favorite = Utils.getStr("Favorites", f"favorite.{i}", "")
+            if favorite:
+                favorites.append(favorite)
+            else:
+                break
+
+        if filename in favorites:
+            messagebox.showinfo(
+                _("Already in Favorites"),
+                _("'{}' is already in your favorites.").format(os.path.basename(filename))
+            )
+            return
+
+        favorites.append(filename)
+
+        # Save favorites
+        if "Favorites" not in Utils.config.sections():
+            Utils.config.add_section("Favorites")
+        else:
+            # Clear existing favorites but keep the section
+            for option in Utils.config.options("Favorites"):
+                Utils.config.remove_option("Favorites", option)
+
+        for i, favorite in enumerate(favorites):
+            Utils.setStr("Favorites", f"favorite.{i}", favorite)
+
+        messagebox.showinfo(
+            _("Added to Favorites"),
+            _("'{}' has been added to your favorites.").format(os.path.basename(filename))
+        )
+
+    # ----------------------------------------------------------------------
+    def openFavorite(self, filename):
+        """Open a favorite file"""
+        if os.path.exists(filename):
+            self.app.load(filename)
+        else:
+            messagebox.showerror(
+                _("Error"),
+                _("File not found: {}").format(filename)
+            )
+            # Ask if the user wants to remove from favorites
+            if messagebox.askyesno(
+                    _("Remove Favorite"),
+                    _("File no longer exists. Remove from favorites?")
+            ):
+                # Load existing favorites
+                favorites = []
+                for i in range(20):
+                    favorite = Utils.getStr("Favorites", f"favorite.{i}", "")
+                    if favorite:
+                        favorites.append(favorite)
+                    else:
+                        break
+
+                if filename in favorites:
+                    favorites.remove(filename)
+
+                    # Save favorites
+                    if "Favorites" not in Utils.config.sections():
+                        Utils.config.add_section("Favorites")
+                    else:
+                        # Clear existing favorites but keep the section
+                        for option in Utils.config.options("Favorites"):
+                            Utils.config.remove_option("Favorites", option)
+
+                    for i, favorite in enumerate(favorites):
+                        Utils.setStr("Favorites", f"favorite.{i}", favorite)
+
+    # ----------------------------------------------------------------------
+    def manageFavorites(self):
+        """Open a dialog to manage favorites"""
+        # Load favorites
+        favorites = []
+        for i in range(20):
+            favorite = Utils.getStr("Favorites", f"favorite.{i}", "")
+            if favorite:
+                favorites.append(favorite)
+            else:
+                break
+
+        # Create dialog
+        dialog = Toplevel(self.master)
+        dialog.title(_("Manage Favorites"))
+        dialog.transient(self.master)
+        dialog.resizable(width=True, height=True)
+        dialog.minsize(400, 300)
+        dialog.grab_set()
+
+        # List frame
+        frame = Frame(dialog)
+        frame.pack(fill=BOTH, expand=YES, padx=5, pady=5)
+
+        scrollbar = Scrollbar(frame)
+        scrollbar.pack(side=RIGHT, fill="y")
+
+        listbox = Listbox(frame, yscrollcommand=scrollbar.set)
+        listbox.pack(side=LEFT, fill=BOTH, expand=YES)
+
+        scrollbar.config(command=listbox.yview)
+
+        # Populate listbox
+        for favorite in favorites:
+            listbox.insert("end", favorite)
+
+        # Button frame
+        button_frame = Frame(dialog)
+        button_frame.pack(fill="x", padx=5, pady=5)
+
+        def remove_favorite():
+            selection = listbox.curselection()
+            if not selection:
+                return
+
+            index = selection[0]
+            path = listbox.get(index)
+
+            if messagebox.askyesno(
+                    _("Confirm Removal"),
+                    _("Remove '{}' from favorites?").format(os.path.basename(path))
+            ):
+                favorites.pop(index)
+                listbox.delete(index)
+
+                # Save favorites
+                if "Favorites" not in Utils.config.sections():
+                    Utils.config.add_section("Favorites")
+                else:
+                    # Clear existing favorites but keep the section
+                    for option in Utils.config.options("Favorites"):
+                        Utils.config.remove_option("Favorites", option)
+
+                for i, favorite in enumerate(favorites):
+                    Utils.setStr("Favorites", f"favorite.{i}", favorite)
+
+        def move_up():
+            selection = listbox.curselection()
+            if not selection or selection[0] == 0:
+                return
+
+            index = selection[0]
+            item = favorites[index]
+            favorites.pop(index)
+            favorites.insert(index - 1, item)
+
+            listbox.delete(0, "end")
+            for favorite in favorites:
+                listbox.insert("end", favorite)
+
+            listbox.selection_set(index - 1)
+
+            # Save favorites
+            if "Favorites" not in Utils.config.sections():
+                Utils.config.add_section("Favorites")
+            else:
+                # Clear existing favorites but keep the section
+                for option in Utils.config.options("Favorites"):
+                    Utils.config.remove_option("Favorites", option)
+
+            for i, favorite in enumerate(favorites):
+                Utils.setStr("Favorites", f"favorite.{i}", favorite)
+
+        def move_down():
+            selection = listbox.curselection()
+            if not selection or selection[0] == len(favorites) - 1:
+                return
+
+            index = selection[0]
+            item = favorites[index]
+            favorites.pop(index)
+            favorites.insert(index + 1, item)
+
+            listbox.delete(0, "end")
+            for favorite in favorites:
+                listbox.insert("end", favorite)
+
+            listbox.selection_set(index + 1)
+
+            # Save favorites
+            if "Favorites" not in Utils.config.sections():
+                Utils.config.add_section("Favorites")
+            else:
+                # Clear existing favorites but keep the section
+                for option in Utils.config.options("Favorites"):
+                    Utils.config.remove_option("Favorites", option)
+
+            for i, favorite in enumerate(favorites):
+                Utils.setStr("Favorites", f"favorite.{i}", favorite)
+
+        # Add favorite manually
+        def add_favorite():
+            filename = Utils.getOpenFilename(self.master)
+            if filename:
+                if filename in favorites:
+                    messagebox.showinfo(
+                        _("Already in Favorites"),
+                        _("'{}' is already in your favorites.").format(os.path.basename(filename))
+                    )
+                    return
+
+                favorites.append(filename)
+                listbox.insert("end", filename)
+
+                # Save favorites
+                if "Favorites" not in Utils.config.sections():
+                    Utils.config.add_section("Favorites")
+                else:
+                    # Clear existing favorites but keep the section
+                    for option in Utils.config.options("Favorites"):
+                        Utils.config.remove_option("Favorites", option)
+
+                for i, favorite in enumerate(favorites):
+                    Utils.setStr("Favorites", f"favorite.{i}", favorite)
+
+        Button(
+            button_frame,
+            text=_("Add"),
+            command=add_favorite
+        ).pack(side=LEFT, padx=5)
+
+        Button(
+            button_frame,
+            text=_("Remove"),
+            command=remove_favorite
+        ).pack(side=LEFT, padx=5)
+
+        Button(
+            button_frame,
+            text=_("Move Up"),
+            command=move_up
+        ).pack(side=LEFT, padx=5)
+
+        Button(
+            button_frame,
+            text=_("Move Down"),
+            command=move_down
+        ).pack(side=LEFT, padx=5)
+
+        Button(
+            button_frame,
+            text=_("Close"),
+            command=dialog.destroy
+        ).pack(side=RIGHT, padx=5)
+
+        # Center dialog
+        dialog.update_idletasks()
+        w = dialog.winfo_width()
+        h = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (w // 2)
+        y = (dialog.winfo_screenheight() // 2) - (h // 2)
+        dialog.geometry('{}x{}+{}+{}'.format(w, h, x, y))
 
 
 # =============================================================================
