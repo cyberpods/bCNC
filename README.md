@@ -1,5 +1,6 @@
 bCNC
 ====
+(This is the standard bCNC package that I added a functional Favorites menu option on the file menu)
 
 GrblHAL (formerly GRBL) CNC command sender, autoleveler, g-code editor, digitizer, CAM
 and swiss army knife for all your CNC needs.
